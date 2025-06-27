@@ -98,10 +98,21 @@ class MainWindow(QMainWindow):
         # 请求头部
         headers_label = QLabel("请求头:")
         self.headers_input = QTextEdit()
-        self.headers_input.setMaximumHeight(100)
-        self.headers_input.setPlaceholderText('{\n    "Content-Type": "application/json"\n}')
+        self.headers_input.setMaximumHeight(150)
+        # 设置默认的请求头
+        default_headers = {
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "User-Agent": "ApiTestTool/1.0",
+            "Connection": "keep-alive",
+            "Cache-Control": "no-cache"
+        }
+        self.headers_input.setText(json.dumps(default_headers, indent=4, ensure_ascii=False))
         layout.addWidget(headers_label)
         layout.addWidget(self.headers_input)
+        
+        # 为请求头添加语法高亮
+        self.headers_highlighter = JsonHighlighter(self.headers_input.document())
         
         # 请求体输入
         body_label = QLabel("请求体:")
