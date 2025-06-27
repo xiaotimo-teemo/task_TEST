@@ -1,10 +1,12 @@
 import sys
 import json
+import os
 from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
                            QTabWidget, QPushButton, QTextEdit, QSpinBox, 
                            QLabel, QFileDialog, QMessageBox, QGridLayout,
                            QTableWidget, QTableWidgetItem, QHeaderView,
-                           QComboBox, QHBoxLayout)
+                           QComboBox, QHBoxLayout, QListWidget, QDialog,
+                           QDialogButtonBox, QLineEdit)
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor, QTextCharFormat, QSyntaxHighlighter
 import requests
@@ -45,11 +47,42 @@ class JsonHighlighter(QSyntaxHighlighter):
         for match in re.finditer(bool_pattern, text):
             self.setFormat(match.start(), match.end() - match.start(), self.bool_format)
 
+class SaveApiDialog(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("保存接口配置")
+        self.setModal(True)
+        
+        layout = QVBoxLayout(self)
+        
+        # 配置名称输入
+        name_layout = QHBoxLayout()
+        name_label = QLabel("配置名称:")
+        self.name_input = QLineEdit()
+        name_layout.addWidget(name_label)
+        name_layout.addWidget(self.name_input)
+        layout.addLayout(name_layout)
+        
+        # 确定和取消按钮
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+        )
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+    
+    def get_name(self):
+        return self.name_input.text().strip()
+
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("接口调用工具")
-        self.setMinimumSize(1000, 800)  # 增加窗口大小
+        self.setMinimumSize(1200, 800)  # 增加窗口大小以适应新的布局
+        
+        # 创建配置保存目录
+        self.config_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'api_configs')
+        os.makedirs(self.config_dir, exist_ok=True)
         
         # 创建主窗口部件和布局
         main_widget = QWidget()
@@ -76,7 +109,37 @@ class MainWindow(QMainWindow):
         self.setup_shelf_tab(shelf_tab)
 
     def setup_api_tab(self, tab):
-        layout = QVBoxLayout(tab)
+        # 创建水平布局来放置左侧的保存配置列表和右侧的主要内容
+        main_layout = QHBoxLayout(tab)
+        
+        # 创建左侧的保存配置列表面板
+        left_panel = QWidget()
+        left_layout = QVBoxLayout(left_panel)
+        
+        # 保存的配置列表
+        saved_label = QLabel("已保存的配置:")
+        self.saved_list = QListWidget()
+        self.saved_list.itemDoubleClicked.connect(self.load_api_config)
+        left_layout.addWidget(saved_label)
+        left_layout.addWidget(self.saved_list)
+        
+        # 保存和删除按钮
+        button_layout = QHBoxLayout()
+        save_button = QPushButton("保存当前配置")
+        save_button.clicked.connect(self.save_api_config)
+        delete_button = QPushButton("删除选中配置")
+        delete_button.clicked.connect(self.delete_api_config)
+        button_layout.addWidget(save_button)
+        button_layout.addWidget(delete_button)
+        left_layout.addLayout(button_layout)
+        
+        # 设置左侧面板的最大宽度
+        left_panel.setMaximumWidth(200)
+        main_layout.addWidget(left_panel)
+        
+        # 创建右侧的主要内容面板
+        right_panel = QWidget()
+        layout = QVBoxLayout(right_panel)
         
         # 请求方法和URL布局
         url_layout = QHBoxLayout()
@@ -149,6 +212,94 @@ class MainWindow(QMainWindow):
         
         # 为响应结果添加语法高亮
         self.result_highlighter = JsonHighlighter(self.result_display.document())
+        
+        main_layout.addWidget(right_panel)
+        
+        # 加载保存的配置列表
+        self.load_saved_configs()
+
+    def save_api_config(self):
+        # 获取当前配置
+        config = {
+            "method": self.method_combo.currentText(),
+            "url": self.url_input.toPlainText(),
+            "headers": self.headers_input.toPlainText(),
+            "body": self.body_input.toPlainText(),
+            "count": self.count_input.value()
+        }
+        
+        # 弹出保存对话框
+        dialog = SaveApiDialog(self)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            name = dialog.get_name()
+            if not name:
+                QMessageBox.warning(self, "警告", "请输入配置名称")
+                return
+            
+            # 保存配置到文件
+            filename = f"{name}.json"
+            filepath = os.path.join(self.config_dir, filename)
+            
+            try:
+                with open(filepath, 'w', encoding='utf-8') as f:
+                    json.dump(config, f, ensure_ascii=False, indent=4)
+                self.load_saved_configs()  # 刷新配置列表
+                QMessageBox.information(self, "成功", "配置保存成功！")
+            except Exception as e:
+                QMessageBox.critical(self, "错误", f"保存配置失败: {str(e)}")
+
+    def load_saved_configs(self):
+        self.saved_list.clear()
+        try:
+            for filename in os.listdir(self.config_dir):
+                if filename.endswith('.json'):
+                    self.saved_list.addItem(filename[:-5])  # 移除.json后缀
+        except Exception as e:
+            QMessageBox.critical(self, "错误", f"加载配置列表失败: {str(e)}")
+
+    def load_api_config(self, item):
+        try:
+            filename = f"{item.text()}.json"
+            filepath = os.path.join(self.config_dir, filename)
+            
+            with open(filepath, 'r', encoding='utf-8') as f:
+                config = json.load(f)
+            
+            # 更新界面
+            index = self.method_combo.findText(config["method"])
+            if index >= 0:
+                self.method_combo.setCurrentIndex(index)
+            self.url_input.setText(config["url"])
+            self.headers_input.setText(config["headers"])
+            self.body_input.setText(config["body"])
+            self.count_input.setValue(config["count"])
+            
+            QMessageBox.information(self, "成功", "配置加载成功！")
+        except Exception as e:
+            QMessageBox.critical(self, "错误", f"加载配置失败: {str(e)}")
+
+    def delete_api_config(self):
+        current_item = self.saved_list.currentItem()
+        if not current_item:
+            QMessageBox.warning(self, "警告", "请选择要删除的配置")
+            return
+        
+        reply = QMessageBox.question(
+            self,
+            "确认删除",
+            f"确定要删除配置 '{current_item.text()}' 吗？",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+        
+        if reply == QMessageBox.StandardButton.Yes:
+            try:
+                filename = f"{current_item.text()}.json"
+                filepath = os.path.join(self.config_dir, filename)
+                os.remove(filepath)
+                self.load_saved_configs()  # 刷新配置列表
+                QMessageBox.information(self, "成功", "配置删除成功！")
+            except Exception as e:
+                QMessageBox.critical(self, "错误", f"删除配置失败: {str(e)}")
 
     def setup_position_tab(self, tab):
         layout = QVBoxLayout(tab)
