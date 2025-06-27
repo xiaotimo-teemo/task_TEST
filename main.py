@@ -6,13 +6,15 @@ from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                            QLabel, QFileDialog, QMessageBox, QGridLayout,
                            QTableWidget, QTableWidgetItem, QHeaderView,
                            QComboBox, QHBoxLayout, QListWidget, QDialog,
-                           QDialogButtonBox, QLineEdit)
-from PySide6.QtCore import Qt
+                           QDialogButtonBox, QLineEdit, QTreeWidget,
+                           QTreeWidgetItem, QSplitter)
+from PySide6.QtCore import Qt, QDateTime
 from PySide6.QtGui import QColor, QTextCharFormat, QSyntaxHighlighter
 import requests
 import pandas as pd
 from datetime import datetime
 import traceback
+import shutil
 
 class JsonHighlighter(QSyntaxHighlighter):
     def __init__(self, parent=None):
@@ -47,6 +49,106 @@ class JsonHighlighter(QSyntaxHighlighter):
         for match in re.finditer(bool_pattern, text):
             self.setFormat(match.start(), match.end() - match.start(), self.bool_format)
 
+class VersionHistoryDialog(QDialog):
+    def __init__(self, config_name, history_dir, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle(f"版本历史 - {config_name}")
+        self.setModal(True)
+        self.setMinimumSize(600, 400)
+        
+        layout = QVBoxLayout(self)
+        
+        # 版本列表
+        self.version_tree = QTreeWidget()
+        self.version_tree.setHeaderLabels(["版本", "创建时间", "备注"])
+        self.version_tree.setColumnWidth(0, 150)
+        self.version_tree.setColumnWidth(1, 200)
+        layout.addWidget(self.version_tree)
+        
+        # 版本内容预览
+        preview_label = QLabel("版本内容预览:")
+        layout.addWidget(preview_label)
+        self.preview_text = QTextEdit()
+        self.preview_text.setReadOnly(True)
+        layout.addWidget(self.preview_text)
+        
+        # 按钮
+        button_layout = QHBoxLayout()
+        self.restore_button = QPushButton("恢复到此版本")
+        self.restore_button.clicked.connect(self.restore_version)
+        self.close_button = QPushButton("关闭")
+        self.close_button.clicked.connect(self.reject)
+        button_layout.addWidget(self.restore_button)
+        button_layout.addWidget(self.close_button)
+        layout.addLayout(button_layout)
+        
+        # 加载版本历史
+        self.history_dir = history_dir
+        self.load_versions()
+        
+        # 连接版本选择信号
+        self.version_tree.itemClicked.connect(self.show_version_preview)
+
+    def load_versions(self):
+        try:
+            versions = []
+            for filename in os.listdir(self.history_dir):
+                if filename.endswith('.json'):
+                    filepath = os.path.join(self.history_dir, filename)
+                    with open(filepath, 'r', encoding='utf-8') as f:
+                        data = json.load(f)
+                        versions.append((
+                            filename,
+                            data.get('_version_info', {}).get('timestamp', ''),
+                            data.get('_version_info', {}).get('comment', '')
+                        ))
+            
+            # 按时间戳排序，最新的在前
+            versions.sort(key=lambda x: x[1], reverse=True)
+            
+            # 添加到树形控件
+            for version in versions:
+                item = QTreeWidgetItem(self.version_tree)
+                item.setText(0, version[0].replace('.json', ''))
+                item.setText(1, version[1])
+                item.setText(2, version[2])
+        
+        except Exception as e:
+            QMessageBox.critical(self, "错误", f"加载版本历史失败: {str(e)}")
+
+    def show_version_preview(self, item):
+        try:
+            filename = f"{item.text(0)}.json"
+            filepath = os.path.join(self.history_dir, filename)
+            with open(filepath, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+                # 移除版本信息后再显示
+                if '_version_info' in data:
+                    del data['_version_info']
+                self.preview_text.setText(json.dumps(data, indent=4, ensure_ascii=False))
+        except Exception as e:
+            QMessageBox.critical(self, "错误", f"加载版本预览失败: {str(e)}")
+
+    def restore_version(self):
+        current_item = self.version_tree.currentItem()
+        if not current_item:
+            QMessageBox.warning(self, "警告", "请选择要恢复的版本")
+            return
+            
+        reply = QMessageBox.question(
+            self,
+            "确认恢复",
+            f"确定要恢复到版本 '{current_item.text(0)}' 吗？",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+        
+        if reply == QMessageBox.StandardButton.Yes:
+            self.accept()
+
+    def get_selected_version(self):
+        item = self.version_tree.currentItem()
+        return f"{item.text(0)}.json" if item else None
+
 class SaveApiDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -63,6 +165,14 @@ class SaveApiDialog(QDialog):
         name_layout.addWidget(self.name_input)
         layout.addLayout(name_layout)
         
+        # 版本备注输入
+        comment_layout = QHBoxLayout()
+        comment_label = QLabel("版本备注:")
+        self.comment_input = QLineEdit()
+        comment_layout.addWidget(comment_label)
+        comment_layout.addWidget(self.comment_input)
+        layout.addLayout(comment_layout)
+        
         # 确定和取消按钮
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
@@ -73,6 +183,9 @@ class SaveApiDialog(QDialog):
     
     def get_name(self):
         return self.name_input.text().strip()
+    
+    def get_comment(self):
+        return self.comment_input.text().strip()
 
 class MainWindow(QMainWindow):
     def __init__(self):
@@ -123,14 +236,22 @@ class MainWindow(QMainWindow):
         left_layout.addWidget(saved_label)
         left_layout.addWidget(self.saved_list)
         
+        # 按钮布局
+        button_layout = QVBoxLayout()
+        
         # 保存和删除按钮
-        button_layout = QHBoxLayout()
         save_button = QPushButton("保存当前配置")
         save_button.clicked.connect(self.save_api_config)
         delete_button = QPushButton("删除选中配置")
         delete_button.clicked.connect(self.delete_api_config)
+        
+        # 版本历史按钮
+        history_button = QPushButton("查看版本历史")
+        history_button.clicked.connect(self.show_version_history)
+        
         button_layout.addWidget(save_button)
         button_layout.addWidget(delete_button)
+        button_layout.addWidget(history_button)
         left_layout.addLayout(button_layout)
         
         # 设置左侧面板的最大宽度
@@ -232,17 +353,35 @@ class MainWindow(QMainWindow):
         dialog = SaveApiDialog(self)
         if dialog.exec() == QDialog.DialogCode.Accepted:
             name = dialog.get_name()
+            comment = dialog.get_comment()
+            
             if not name:
                 QMessageBox.warning(self, "警告", "请输入配置名称")
                 return
             
-            # 保存配置到文件
-            filename = f"{name}.json"
-            filepath = os.path.join(self.config_dir, filename)
-            
             try:
-                with open(filepath, 'w', encoding='utf-8') as f:
+                # 创建配置目录和版本目录
+                config_path = os.path.join(self.config_dir, name)
+                versions_path = os.path.join(config_path, 'versions')
+                os.makedirs(versions_path, exist_ok=True)
+                
+                # 添加版本信息
+                timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                version_id = datetime.now().strftime("%Y%m%d_%H%M%S")
+                config['_version_info'] = {
+                    'timestamp': timestamp,
+                    'comment': comment
+                }
+                
+                # 保存当前版本
+                version_file = os.path.join(versions_path, f'{version_id}.json')
+                with open(version_file, 'w', encoding='utf-8') as f:
                     json.dump(config, f, ensure_ascii=False, indent=4)
+                
+                # 更新当前配置文件（复制最新版本）
+                current_file = os.path.join(config_path, 'current.json')
+                shutil.copy2(version_file, current_file)
+                
                 self.load_saved_configs()  # 刷新配置列表
                 QMessageBox.information(self, "成功", "配置保存成功！")
             except Exception as e:
@@ -251,19 +390,24 @@ class MainWindow(QMainWindow):
     def load_saved_configs(self):
         self.saved_list.clear()
         try:
-            for filename in os.listdir(self.config_dir):
-                if filename.endswith('.json'):
-                    self.saved_list.addItem(filename[:-5])  # 移除.json后缀
+            for item in os.listdir(self.config_dir):
+                config_path = os.path.join(self.config_dir, item)
+                if os.path.isdir(config_path) and os.path.exists(os.path.join(config_path, 'current.json')):
+                    self.saved_list.addItem(item)
         except Exception as e:
             QMessageBox.critical(self, "错误", f"加载配置列表失败: {str(e)}")
 
     def load_api_config(self, item):
         try:
-            filename = f"{item.text()}.json"
-            filepath = os.path.join(self.config_dir, filename)
+            config_path = os.path.join(self.config_dir, item.text())
+            current_file = os.path.join(config_path, 'current.json')
             
-            with open(filepath, 'r', encoding='utf-8') as f:
+            with open(current_file, 'r', encoding='utf-8') as f:
                 config = json.load(f)
+            
+            # 移除版本信息
+            if '_version_info' in config:
+                del config['_version_info']
             
             # 更新界面
             index = self.method_combo.findText(config["method"])
@@ -287,19 +431,43 @@ class MainWindow(QMainWindow):
         reply = QMessageBox.question(
             self,
             "确认删除",
-            f"确定要删除配置 '{current_item.text()}' 吗？",
+            f"确定要删除配置 '{current_item.text()}' 吗？这将删除所有版本历史！",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
         )
         
         if reply == QMessageBox.StandardButton.Yes:
             try:
-                filename = f"{current_item.text()}.json"
-                filepath = os.path.join(self.config_dir, filename)
-                os.remove(filepath)
+                config_path = os.path.join(self.config_dir, current_item.text())
+                shutil.rmtree(config_path)
                 self.load_saved_configs()  # 刷新配置列表
                 QMessageBox.information(self, "成功", "配置删除成功！")
             except Exception as e:
                 QMessageBox.critical(self, "错误", f"删除配置失败: {str(e)}")
+
+    def show_version_history(self):
+        current_item = self.saved_list.currentItem()
+        if not current_item:
+            QMessageBox.warning(self, "警告", "请选择要查看历史的配置")
+            return
+        
+        try:
+            config_name = current_item.text()
+            versions_path = os.path.join(self.config_dir, config_name, 'versions')
+            
+            dialog = VersionHistoryDialog(config_name, versions_path, self)
+            if dialog.exec() == QDialog.DialogCode.Accepted:
+                # 用户选择恢复某个版本
+                selected_version = dialog.get_selected_version()
+                if selected_version:
+                    version_file = os.path.join(versions_path, selected_version)
+                    current_file = os.path.join(self.config_dir, config_name, 'current.json')
+                    shutil.copy2(version_file, current_file)
+                    
+                    # 重新加载配置
+                    self.load_api_config(current_item)
+        
+        except Exception as e:
+            QMessageBox.critical(self, "错误", f"查看版本历史失败: {str(e)}")
 
     def setup_position_tab(self, tab):
         layout = QVBoxLayout(tab)
