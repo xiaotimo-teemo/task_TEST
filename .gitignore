@@ -20,26 +20,24 @@ wheels/
 .installed.cfg
 *.egg
 
-# Virtual Environment
-.env
-.venv
-env/
-venv/
-ENV/
-
 # IDE
 .idea/
 .vscode/
 *.swp
 *.swo
 
-# macOS
-.DS_Store
-.AppleDouble
-.LSOverride
-._*
+# Virtual Environment
+venv/
+env/
+ENV/
 
-# Windows
+# API Configs
+api_configs/*/versions/
+api_configs/*/current.json
+
+# Logs
+*.log
+
+# OS
+.DS_Store
 Thumbs.db
-ehthumbs.db
-Desktop.ini 
