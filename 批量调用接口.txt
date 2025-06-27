@@ -1,0 +1,55 @@
+1. 接口调用功能
+   - 用户自己输入URL和请求体。如下：
+请求URL：
+POST：http://10.31.16.100:8181/rcms/services/rest/hikRpcService/genAgvSchedulingTask
+
+请求体：
+
+{
+    "reqCode": "468513",
+    "reqTime": "",
+    "clientCode": "",
+    "tokenCode": "",
+    "taskTyp": "ces11",
+    "ctnrTyp": "",
+    "ctnrCode": "",
+    "ctnrNum": "",
+    "taskMode": "",
+    "wbCode": "",
+    "positionCodePath": [
+        {
+            "positionCode": "20000503501013",
+            "type": "05"
+        },
+        {
+            "positionCode": "20001203501013",
+            "type": "05"
+        }
+    ],
+    "podCode": "",
+    "podDir": "0",
+    "podTyp": "",
+    "materialLot": "",
+    "materialType": "",
+    "priority": "1",
+    "agvCode": "",
+    "taskCode": "",
+    "groupId": "",
+    "agvTyp": "",
+    "positionSelStrategy ": "",
+    "data": ""
+}
+   - 调用接口，用户可以输入调用次数，实现批量调用
+   - 显示每条接口的调用结果
+
+2. 导入仓位信息
+   - 支持导入Excel格式（.xlsx、.xls）和CSV格式的表格文件
+   - 自动识别并提取货架编号和仓位编号的对应关系
+
+3. 货架解析功能
+   - 货架编号格式：6位数字（如：200001）
+   - 智能匹配：根据用户输入的货架编号，从导入的仓位信息表格中自动查找并显示对应的仓位编号
+
+
+
+
