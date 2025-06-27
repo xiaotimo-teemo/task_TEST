@@ -239,6 +239,11 @@ class MainWindow(QMainWindow):
         # 按钮布局
         button_layout = QVBoxLayout()
         
+        # 新建配置按钮
+        new_button = QPushButton("新建配置")
+        new_button.clicked.connect(self.new_api_config)
+        button_layout.addWidget(new_button)
+        
         # 保存和删除按钮
         save_button = QPushButton("保存当前配置")
         save_button.clicked.connect(self.save_api_config)
@@ -259,8 +264,16 @@ class MainWindow(QMainWindow):
         main_layout.addWidget(left_panel)
         
         # 创建右侧的主要内容面板
-        right_panel = QWidget()
-        layout = QVBoxLayout(right_panel)
+        self.right_panel = QWidget()  # 将right_panel设为实例变量
+        self.setup_right_panel()  # 将右侧面板设置抽取为单独的方法
+        main_layout.addWidget(self.right_panel)
+        
+        # 加载保存的配置列表
+        self.load_saved_configs()
+
+    def setup_right_panel(self):
+        """设置右侧面板的内容"""
+        layout = QVBoxLayout(self.right_panel)
         
         # 请求方法和URL布局
         url_layout = QHBoxLayout()
@@ -333,59 +346,126 @@ class MainWindow(QMainWindow):
         
         # 为响应结果添加语法高亮
         self.result_highlighter = JsonHighlighter(self.result_display.document())
+
+    def new_api_config(self):
+        """创建新的接口配置"""
+        reply = QMessageBox.question(
+            self,
+            "新建配置",
+            "是否要清空当前配置并创建新的配置？",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
         
-        main_layout.addWidget(right_panel)
-        
-        # 加载保存的配置列表
-        self.load_saved_configs()
+        if reply == QMessageBox.StandardButton.Yes:
+            # 重置所有输入字段
+            self.method_combo.setCurrentIndex(0)  # 设置为GET
+            self.url_input.clear()
+            
+            # 重置请求头为默认值
+            default_headers = {
+                "Content-Type": "application/json",
+                "Accept": "application/json",
+                "User-Agent": "ApiTestTool/1.0",
+                "Connection": "keep-alive",
+                "Cache-Control": "no-cache"
+            }
+            self.headers_input.setText(json.dumps(default_headers, indent=4, ensure_ascii=False))
+            
+            self.body_input.clear()
+            self.count_input.setValue(1)
+            self.result_display.clear()
+            
+            # 取消选中配置列表中的项目
+            self.saved_list.clearSelection()
+            
+            QMessageBox.information(self, "成功", "已创建新的配置，请填写配置信息。")
 
     def save_api_config(self):
-        # 获取当前配置
-        config = {
-            "method": self.method_combo.currentText(),
-            "url": self.url_input.toPlainText(),
-            "headers": self.headers_input.toPlainText(),
-            "body": self.body_input.toPlainText(),
-            "count": self.count_input.value()
-        }
+        """保存当前API配置"""
+        # 获取当前选中的配置名称
+        current_item = self.saved_list.currentItem()
         
-        # 弹出保存对话框
-        dialog = SaveApiDialog(self)
+        # 创建输入对话框
+        dialog = QDialog(self)
+        dialog.setWindowTitle("保存配置")
+        layout = QVBoxLayout(dialog)
+        
+        # 配置名称输入
+        name_layout = QHBoxLayout()
+        name_label = QLabel("配置名称:")
+        name_input = QLineEdit()
+        if current_item:
+            name_input.setText(current_item.text())
+            name_input.setReadOnly(True)
+        name_layout.addWidget(name_label)
+        name_layout.addWidget(name_input)
+        layout.addLayout(name_layout)
+        
+        # 版本备注输入
+        comment_label = QLabel("版本备注:")
+        comment_input = QTextEdit()
+        comment_input.setMaximumHeight(100)
+        layout.addWidget(comment_label)
+        layout.addWidget(comment_input)
+        
+        # 对话框按钮
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+        )
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+        layout.addWidget(buttons)
+        
         if dialog.exec() == QDialog.DialogCode.Accepted:
-            name = dialog.get_name()
-            comment = dialog.get_comment()
+            config_name = name_input.text().strip()
+            version_comment = comment_input.toPlainText().strip()
             
-            if not name:
-                QMessageBox.warning(self, "警告", "请输入配置名称")
+            if not config_name:
+                QMessageBox.warning(self, "错误", "配置名称不能为空！")
                 return
             
-            try:
-                # 创建配置目录和版本目录
-                config_path = os.path.join(self.config_dir, name)
-                versions_path = os.path.join(config_path, 'versions')
-                os.makedirs(versions_path, exist_ok=True)
-                
-                # 添加版本信息
-                timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                version_id = datetime.now().strftime("%Y%m%d_%H%M%S")
-                config['_version_info'] = {
-                    'timestamp': timestamp,
-                    'comment': comment
-                }
-                
-                # 保存当前版本
-                version_file = os.path.join(versions_path, f'{version_id}.json')
-                with open(version_file, 'w', encoding='utf-8') as f:
-                    json.dump(config, f, ensure_ascii=False, indent=4)
-                
-                # 更新当前配置文件（复制最新版本）
-                current_file = os.path.join(config_path, 'current.json')
-                shutil.copy2(version_file, current_file)
-                
-                self.load_saved_configs()  # 刷新配置列表
-                QMessageBox.information(self, "成功", "配置保存成功！")
-            except Exception as e:
-                QMessageBox.critical(self, "错误", f"保存配置失败: {str(e)}")
+            # 生成版本号（格式：yyyyMMdd_HHmmss）
+            version = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+            
+            # 准备配置数据
+            config_data = {
+                "method": self.method_combo.currentText(),
+                "url": self.url_input.toPlainText(),
+                "headers": json.loads(self.headers_input.toPlainText()),
+                "body": self.body_input.toPlainText(),
+                "count": self.count_input.value(),
+                "version": version,
+                "comment": version_comment,
+                "timestamp": datetime.datetime.now().isoformat()
+            }
+            
+            # 创建配置目录
+            config_dir = os.path.join(self.config_dir, config_name)
+            versions_dir = os.path.join(config_dir, "versions")
+            os.makedirs(versions_dir, exist_ok=True)
+            
+            # 保存当前版本到versions目录
+            version_file = os.path.join(versions_dir, f"{version}.json")
+            with open(version_file, "w", encoding="utf-8") as f:
+                json.dump(config_data, f, ensure_ascii=False, indent=4)
+            
+            # 更新current.json
+            current_file = os.path.join(config_dir, "current.json")
+            with open(current_file, "w", encoding="utf-8") as f:
+                json.dump(config_data, f, ensure_ascii=False, indent=4)
+            
+            # 如果是新配置，添加到列表中
+            if not current_item:
+                self.saved_list.addItem(config_name)
+            
+            QMessageBox.information(
+                self,
+                "成功",
+                f"配置已保存！\n版本号: {version}\n备注: {version_comment}"
+            )
+            
+            # 刷新配置列表
+            self.load_saved_configs()
 
     def load_saved_configs(self):
         self.saved_list.clear()
@@ -445,29 +525,100 @@ class MainWindow(QMainWindow):
                 QMessageBox.critical(self, "错误", f"删除配置失败: {str(e)}")
 
     def show_version_history(self):
+        """显示版本历史对话框"""
         current_item = self.saved_list.currentItem()
         if not current_item:
-            QMessageBox.warning(self, "警告", "请选择要查看历史的配置")
+            QMessageBox.warning(self, "错误", "请先选择一个配置！")
             return
         
-        try:
-            config_name = current_item.text()
-            versions_path = os.path.join(self.config_dir, config_name, 'versions')
-            
-            dialog = VersionHistoryDialog(config_name, versions_path, self)
-            if dialog.exec() == QDialog.DialogCode.Accepted:
-                # 用户选择恢复某个版本
-                selected_version = dialog.get_selected_version()
-                if selected_version:
-                    version_file = os.path.join(versions_path, selected_version)
-                    current_file = os.path.join(self.config_dir, config_name, 'current.json')
-                    shutil.copy2(version_file, current_file)
-                    
-                    # 重新加载配置
-                    self.load_api_config(current_item)
+        config_name = current_item.text()
+        versions_dir = os.path.join(self.config_dir, config_name, "versions")
         
-        except Exception as e:
-            QMessageBox.critical(self, "错误", f"查看版本历史失败: {str(e)}")
+        if not os.path.exists(versions_dir):
+            QMessageBox.warning(self, "错误", "该配置没有历史版本！")
+            return
+        
+        # 创建版本历史对话框
+        dialog = QDialog(self)
+        dialog.setWindowTitle(f"版本历史 - {config_name}")
+        dialog.resize(600, 400)
+        layout = QVBoxLayout(dialog)
+        
+        # 创建版本列表表格
+        table = QTableWidget()
+        table.setColumnCount(4)
+        table.setHorizontalHeaderLabels(["版本号", "时间", "备注", "操作"])
+        layout.addWidget(table)
+        
+        # 获取所有版本文件
+        version_files = sorted(
+            [f for f in os.listdir(versions_dir) if f.endswith('.json')],
+            reverse=True
+        )
+        
+        table.setRowCount(len(version_files))
+        
+        for row, version_file in enumerate(version_files):
+            with open(os.path.join(versions_dir, version_file), "r", encoding="utf-8") as f:
+                version_data = json.load(f)
+            
+            # 版本号
+            version_item = QTableWidgetItem(version_data["version"])
+            table.setItem(row, 0, version_item)
+            
+            # 时间
+            timestamp = datetime.datetime.fromisoformat(version_data["timestamp"])
+            time_item = QTableWidgetItem(timestamp.strftime("%Y-%m-%d %H:%M:%S"))
+            table.setItem(row, 1, time_item)
+            
+            # 备注
+            comment_item = QTableWidgetItem(version_data.get("comment", ""))
+            table.setItem(row, 2, comment_item)
+            
+            # 回滚按钮
+            restore_button = QPushButton("回滚到此版本")
+            restore_button.clicked.connect(
+                lambda checked, v=version_data: self.restore_version(config_name, v)
+            )
+            table.setCellWidget(row, 3, restore_button)
+        
+        # 调整列宽
+        table.resizeColumnsToContents()
+        
+        # 关闭按钮
+        close_button = QPushButton("关闭")
+        close_button.clicked.connect(dialog.close)
+        layout.addWidget(close_button)
+        
+        dialog.exec()
+
+    def restore_version(self, config_name, version_data):
+        """回滚到指定版本"""
+        reply = QMessageBox.question(
+            self,
+            "确认回滚",
+            f"确定要回滚到版本 {version_data['version']} 吗？\n这将覆盖当前配置。",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+        
+        if reply == QMessageBox.StandardButton.Yes:
+            # 更新current.json
+            current_file = os.path.join(self.config_dir, config_name, "current.json")
+            with open(current_file, "w", encoding="utf-8") as f:
+                json.dump(version_data, f, ensure_ascii=False, indent=4)
+            
+            # 更新界面显示
+            self.method_combo.setCurrentText(version_data["method"])
+            self.url_input.setText(version_data["url"])
+            self.headers_input.setText(json.dumps(version_data["headers"], indent=4, ensure_ascii=False))
+            self.body_input.setText(version_data["body"])
+            self.count_input.setValue(version_data["count"])
+            
+            QMessageBox.information(
+                self,
+                "成功",
+                f"已回滚到版本 {version_data['version']}"
+            )
 
     def setup_position_tab(self, tab):
         layout = QVBoxLayout(tab)
@@ -504,7 +655,7 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.shelf_table)
 
     def format_response(self, response, error=None):
-        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         result = f"=== 请求时间: {timestamp} ===\n\n"
         
         # 添加请求信息
