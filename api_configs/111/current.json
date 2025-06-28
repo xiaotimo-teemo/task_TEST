@@ -1,11 +1,17 @@
 {
-    "method": "POST",
-    "url": "http://10.31.16.100:8181/rcms/services/rest/hikRpcService/genAgvSchedulingTask",
-    "headers": "{\n    \"Content-Type\": \"application/json\",\n    \"Accept\": \"application/json\",\n    \"User-Agent\": \"ApiTestTool/1.0\",\n    \"Connection\": \"keep-alive\",\n    \"Cache-Control\": \"no-cache\"\n}",
-    "body": "{\n    \"reqCode\": \"468513\",\n    \"reqTime\": \"\",\n    \"clientCode\": \"\",\n    \"tokenCode\": \"\",\n    \"taskTyp\": \"ces11\",\n    \"ctnrTyp\": \"\",\n    \"ctnrCode\": \"\",\n    \"ctnrNum\": \"\",\n    \"taskMode\": \"\",\n    \"wbCode\": \"\",\n    \"positionCodePath\": [\n        {\n            \"positionCode\": \"20000503501013\",\n            \"type\": \"05\"\n        },\n        {\n            \"positionCode\": \"20001203501013\",\n            \"type\": \"05\"\n        }\n    ],\n    \"podCode\": \"\",\n    \"podDir\": \"0\",\n    \"podTyp\": \"\",\n    \"materialLot\": \"\",\n    \"materialType\": \"\",\n    \"priority\": \"1\",\n    \"agvCode\": \"\",\n    \"taskCode\": \"\",\n    \"groupId\": \"\",\n    \"agvTyp\": \"\",\n    \"positionSelStrategy \": \"\",\n    \"data\": \"\"\n}",
+    "method": "GET",
+    "url": "1111",
+    "headers": {
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+        "User-Agent": "ApiTestTool/1.0",
+        "Connection": "keep-alive",
+        "Cache-Control": "no-cache"
+    },
+    "body": "2222",
     "count": 1,
-    "_version_info": {
-        "timestamp": "2025-06-28 00:19:25",
-        "comment": ""
-    }
+    "version": "20250628_004130",
+    "theme": "更新1.v",
+    "comment": "",
+    "timestamp": "2025-06-28T00:41:30.243455"
 }
